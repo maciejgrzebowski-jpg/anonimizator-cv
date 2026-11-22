@@ -30,6 +30,10 @@ def download(url: str, target: Path):
 
 
 def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     DEST.mkdir(parents=True, exist_ok=True)
     for lang in LANGS:
         target = DEST / f"{lang}.traineddata"
