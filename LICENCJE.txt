@@ -7,7 +7,7 @@ Pełny tekst licencji: https://www.gnu.org/licenses/agpl-3.0.txt
 
 Odbiorca programu ma prawo otrzymać jego kod źródłowy, a także używać go,
 zmieniać i przekazywać dalej na tych samych warunkach.
-Kod źródłowy: [wpisz tu adres repozytorium albo dołącz archiwum ZIP z kodem]
+Kod źródłowy: https://github.com/maciejgrzebowski-jpg/anonimizator-cv
 
 Program jest dostarczany "TAK JAK JEST", bez jakiejkolwiek gwarancji.
 
