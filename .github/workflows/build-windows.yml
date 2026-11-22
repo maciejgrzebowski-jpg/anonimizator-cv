@@ -1,0 +1,95 @@
+name: Zbuduj instalator Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalacja zależności
+        run: pip install -r requirements.txt pyinstaller pytest
+
+      - name: Tesseract OCR (dołączany do instalatora)
+        run: choco install tesseract -y --no-progress
+
+      - name: Pliki językowe OCR (polski, angielski)
+        run: python pobierz_ocr.py
+
+      - name: Testy (wykrywanie, PDF, Word, obrazki, skany, okno)
+        run: python -m pytest -v
+
+      - name: Budowanie programu (PyInstaller)
+        run: >
+          pyinstaller --noconfirm --windowed --name AnonimizatorCV
+          --icon instalator/ikona.ico
+          --add-data "anonimizator/data;anonimizator/data"
+          --add-data "przyklady;przyklady"
+          app.py
+
+      - name: Dołączenie Tesseracta do programu
+        shell: pwsh
+        run: |
+          $dst = "dist\AnonimizatorCV\tesseract"
+          Copy-Item "C:\Program Files\Tesseract-OCR" $dst -Recurse
+          # pliki językowe bierzemy własne (polski + angielski, wersja "best")
+          Remove-Item "$dst\tessdata" -Recurse -Force
+          Remove-Item "$dst\tesseract-uninstall.exe" -ErrorAction SilentlyContinue
+          & "$dst\tesseract.exe" --version
+
+      - name: Sprawdzenie zbudowanego programu
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\AnonimizatorCV\AnonimizatorCV.exe -ArgumentList '--selftest' -Wait -PassThru
+          Get-Content "$env:TEMP\anonimizator_selftest.log"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Budowanie instalatora (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $ver = python -c "import anonimizator; print(anonimizator.__version__)"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" instalator\setup.iss
+
+      - name: Test instalatora na czystym Windowsie (instalacja, uruchomienie, odinstalowanie)
+        shell: pwsh
+        run: |
+          # ukrywamy systemowego Tesseracta - program musi działać na tym, co ma w instalatorze
+          Rename-Item "C:\Program Files\Tesseract-OCR" "Tesseract-OCR-ukryty"
+          $setup = Get-ChildItem dist\AnonimizatorCV-Setup-*.exe | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
+          $dir = "$env:LOCALAPPDATA\Programs\Anonimizator CV"
+          if (-not (Test-Path "$dir\AnonimizatorCV.exe")) { Get-Content install.log; Write-Error "Brak programu po instalacji"; exit 1 }
+          Remove-Item "$env:TEMP\anonimizator_selftest.log" -ErrorAction SilentlyContinue
+          $t = Start-Process "$dir\AnonimizatorCV.exe" -ArgumentList '--selftest' -Wait -PassThru
+          Get-Content "$env:TEMP\anonimizator_selftest.log"
+          if ($t.ExitCode -ne 0) { exit 1 }
+          $u = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait -PassThru
+          Start-Sleep -Seconds 8
+          if (Test-Path "$dir\AnonimizatorCV.exe") { Write-Error "Odinstalowanie nie usunęło programu"; exit 1 }
+          Write-Host "Instalacja, uruchomienie i odinstalowanie: OK"
+
+      - name: Instalator do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnonimizatorCV-instalator
+          path: dist/*.exe
+
+      - name: Wydanie (tylko dla tagów v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe

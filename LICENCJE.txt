@@ -1,0 +1,25 @@
+Anonimizator CV - informacje o licencjach
+==========================================
+
+Program jako całość jest udostępniany na licencji GNU Affero General Public License
+w wersji 3 (AGPL-3.0), ponieważ korzysta z biblioteki PyMuPDF objętej tą licencją.
+Pełny tekst licencji: https://www.gnu.org/licenses/agpl-3.0.txt
+
+Odbiorca programu ma prawo otrzymać jego kod źródłowy, a także używać go,
+zmieniać i przekazywać dalej na tych samych warunkach.
+Kod źródłowy: [wpisz tu adres repozytorium albo dołącz archiwum ZIP z kodem]
+
+Program jest dostarczany "TAK JAK JEST", bez jakiejkolwiek gwarancji.
+
+Wykorzystane komponenty
+-----------------------
+- PyMuPDF / MuPDF (Artifex Software)  - AGPL-3.0  - obsługa PDF i silnik OCR
+- Tesseract OCR (kompilacja UB Mannheim) + dane językowe tessdata_best - Apache-2.0
+  wraz z bibliotekami pomocniczymi (Leptonica - BSD-2-Clause, libpng, libjpeg, libtiff,
+  zlib, libwebp i inne - licencje typu BSD/MIT/zlib)
+- python-docx                          - MIT
+- lxml                                 - BSD-3-Clause
+- Pillow                               - MIT-CMU (HPND)
+- Python, tkinter (Tcl/Tk)             - PSF / licencja typu BSD
+- PyInstaller (program startowy)       - GPL-2.0 z wyjątkiem dla dystrybucji
+- Inno Setup (instalator)              - licencja Inno Setup (darmowa, także komercyjnie)
