@@ -275,7 +275,12 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
 
     # 4) metadane i spis treści
     # czyścimy metadane; zostaje tylko informacja o bibliotece (prośba licencji AGPL PyMuPDF)
-    doc.set_metadata({"producer": f"PyMuPDF {getattr(fitz, 'VersionBind', '')} (AGPL-3.0) / Anonimizator CV"})
+    meta = {k: "" for k in ("author", "title", "subject", "keywords", "creator",
+                            "creationDate", "modDate")}
+    meta["producer"] = f"PyMuPDF {getattr(fitz, 'VersionBind', '')} (AGPL-3.0) / Anonimizator CV"
+    doc.set_metadata(meta)
+    if any((doc.metadata or {}).get(k) for k in ("author", "title", "subject", "keywords", "creator")):
+        doc.xref_set_key(-1, "Info", "null")  # awaryjnie: usuń cały blok metadanych
     try:
         doc.del_xml_metadata()
     except Exception:
