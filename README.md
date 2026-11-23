@@ -23,7 +23,7 @@ Jeden obrazek trwa ok. 5–20 sekund. Im lepsza jakość pliku (skan 200–300 d
 | PESEL (ze sprawdzeniem sumy kontrolnej), nr dowodu | 44051401359 |
 | Data i miejsce urodzenia | Data urodzenia: 14.05.1991 |
 | Profile i linki | linkedin.com/in/…, github.com/… |
-| Zdjęcie kandydata | w PDF/Word usuwane automatycznie; w obrazkach i skanach wykrywane i zaznaczane do sprawdzenia |
+| Zdjęcie kandydata | Usuwane są tylko zdjęcia osób - logo i elementy graficzne zostają (rozpoznanie po kolorach: płynne odcienie i kolor skóry vs. płaskie kolory). PDF i Word: razem z danymi obrazu (także przycięte, w kole, jako wypełnienie kształtu) oraz miniaturka pliku; obrazki i skany: dwie niezależne metody wykrywania, wynik do sprawdzenia |
 | Ukryte dane | autor i tytuł w metadanych, klikalne linki `mailto:`, dane EXIF w zdjęciach (np. GPS) |
 
 Wszystko, co zostaje w dokumencie, program sprawdza jeszcze raz po zapisie. Jeśli jakaś zaznaczona fraza nadal jest widoczna, pojawi się ostrzeżenie.

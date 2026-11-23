@@ -141,6 +141,53 @@ def test_docx(tmp_path):
     assert b"wisniewska" not in blob.lower() and "Wiśniewska".encode() not in blob
 
 
+def test_docx_hidden_photos(tmp_path):
+    """Zdjęcie jako wypełnienie kształtu, stary obiekt VML i miniaturka strony - wszystko ma zniknąć."""
+    import zipfile
+    from docx import Document
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.opc.packuri import PackURI
+    from docx.opc.part import Part
+    from docx.oxml import parse_xml
+    from PIL import Image
+    from anonimizator.photo import fake_portrait
+    img = tmp_path / "foto.png"
+    fake_portrait(240, 300).save(img)
+    logo = tmp_path / "logo.png"
+    Image.new("RGB", (120, 120), (230, 80, 30)).save(logo)
+    doc = Document()
+    doc.add_paragraph("Jan Kowalski")
+    doc.add_picture(str(logo))  # logo firmy - ma zostać
+    rid, _ = doc.part.get_or_add_image(str(img))
+    V = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' \
+        'xmlns:v="urn:schemas-microsoft-com:vml" ' \
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    p1 = doc.add_paragraph()._p
+    p1.append(parse_xml(f'<w:r {V}><w:pict><v:rect style="width:60pt;height:80pt">'
+                        f'<v:fill r:id="{rid}" type="frame"/></v:rect></w:pict></w:r>'))
+    p2 = doc.add_paragraph()._p
+    p2.append(parse_xml(f'<w:r {V}><w:object><v:shape style="width:60pt;height:80pt">'
+                        f'<v:imagedata r:id="{rid}"/></v:shape></w:object></w:r>'))
+    if not any(r.reltype == RT.THUMBNAIL for r in doc.part.package.rels.values()):
+        thumb = Part(PackURI("/docProps/thumbnail.jpeg"), "image/jpeg", img.read_bytes(), doc.part.package)
+        doc.part.package.relate_to(thumb, RT.THUMBNAIL)
+    src = tmp_path / "cv.docx"
+    doc.save(src)
+    with zipfile.ZipFile(src) as z:
+        assert any(n.startswith("word/media/") for n in z.namelist())
+        assert "docProps/thumbnail.jpeg" in z.namelist()
+    _, findings = engine.analyze(str(src))
+    out = tmp_path / "out.docx"
+    st = engine.anonymize(str(src), str(out), findings)
+    assert st["zdjecia"] == 2
+    with zipfile.ZipFile(out) as z:
+        names = z.namelist()
+        media = [z.read(n) for n in names if n.startswith("word/media/")]
+    assert len(media) == 1, names  # zostało tylko logo
+    assert Image.open(__import__("io").BytesIO(media[0])).size == (120, 120)
+    assert "docProps/thumbnail.jpeg" not in names, names
+
+
 def test_docx_blackout(tmp_path):
     src = SAMPLES / "przykladowe_CV.docx"
     _, findings = engine.analyze(str(src))
@@ -176,7 +223,51 @@ def test_pdf(tmp_path):
     with fitz.open(out) as d:
         assert not d.metadata.get("author")
         assert not any(l.get("uri", "").startswith("mailto:") for p in d for l in p.get_links())
-        assert len(d[0].get_image_info()) == 0
+        assert not [i for i in d[0].get_image_info() if i["width"] > 2], "zdjęcie zostało"
+
+
+@pytest.mark.skipif(not HAS_PYMUPDF, reason="brak PyMuPDF")
+def test_pdf_cropped_photos(tmp_path):
+    """Zdjęcia przycięte w Wordzie (koło, wycinek dużego obrazu) - dane obrazu muszą zniknąć."""
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    src = SAMPLES / "zdjecie_przyciete.pdf"
+    _, findings = engine.analyze(str(src))
+    areas = engine.suggest_areas(str(src))
+    out = tmp_path / "wynik.pdf"
+    st = engine.anonymize(str(src), str(out), findings, manual=areas)
+    assert st["zdjecia"] >= 2, st
+    with fitz.open(out) as d:
+        left = [i for i in d[0].get_image_info() if i["width"] > 2]
+        text = d[0].get_text()
+    assert len(left) == 1, left  # zostało tylko logo (80x80 pt w lewym dolnym rogu)
+    assert "Doświadczenie" in text and "600 111 222" not in text
+
+
+@pytest.mark.skipif(not HAS_PYMUPDF, reason="brak PyMuPDF")
+def test_pdf_keeps_flat_background_images(tmp_path):
+    """Jednolity kolorowy pasek zapisany jako obraz (np. szablon z Canvy) zostaje."""
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    from PIL import Image
+    bar = tmp_path / "pasek.png"
+    Image.new("RGB", (200, 800), (20, 90, 120)).save(bar)
+    src = tmp_path / "cv.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_image(fitz.Rect(0, 0, 200, 842), filename=str(bar))
+    page.insert_text((250, 100), "Doswiadczenie: magazynier 2015-2020", fontsize=11)
+    doc.save(src)
+    doc.close()
+    _, findings = engine.analyze(str(src))
+    out = tmp_path / "out.pdf"
+    engine.anonymize(str(src), str(out), findings)
+    with fitz.open(out) as d:
+        assert [i for i in d[0].get_image_info() if i["width"] > 2], "pasek tła zniknął"
 
 
 @pytest.mark.skipif(not HAS_PYMUPDF, reason="brak PyMuPDF")

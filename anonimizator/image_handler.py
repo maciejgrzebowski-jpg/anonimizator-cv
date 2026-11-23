@@ -154,6 +154,43 @@ def detect_photos(img: Image.Image, words) -> list[tuple]:
     return found[:2]
 
 
+def detect_photos_grid(img: Image.Image, words) -> list[tuple]:
+    """Druga, niezależna metoda: szuka "obrazkowego" obszaru (dużo różnych kolorów/odcieni),
+    w którym nie ma tekstu. Działa też, gdy zdjęcie styka się z innymi elementami
+    albo ma tło podobne do strony."""
+    W = 120
+    k = W / img.width
+    H = max(1, round(img.height * k))
+    small = img.convert("RGB").resize((W, H))
+    px = small.load()
+    cell = 3
+    cw, ch = W // cell, H // cell
+    text = [[False] * cw for _ in range(ch)]
+    for x0, y0, x1, y1, *_ in words:
+        for cy in range(max(0, int(y0 * k) // cell), min(ch, int(y1 * k) // cell + 1)):
+            for cx in range(max(0, int(x0 * k) // cell), min(cw, int(x1 * k) // cell + 1)):
+                text[cy][cx] = True
+    pic = [[False] * cw for _ in range(ch)]
+    for cy in range(ch):
+        for cx in range(cw):
+            if text[cy][cx]:
+                continue
+            vals = [px[cx * cell + dx, cy * cell + dy] for dx in range(cell) for dy in range(cell)]
+            lum = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b in vals]
+            spread = max(lum) - min(lum)
+            sat = max(max(v) - min(v) for v in vals)
+            distinct = len({tuple(c // 32 for c in v) for v in vals})
+            # zdjęcie: zróżnicowane odcienie, nie jednolite tło i nie czarno-biały tekst
+            pic[cy][cx] = (distinct >= 3 and 12 < spread < 200) or (sat > 40 and spread > 8)
+    found = []
+    for b in _blobs(pic, cw, ch, pad=(0, 1)):
+        x0, y0, x1, y1 = b
+        bw, bh = (x1 - x0), (y1 - y0)
+        if 0.10 <= bw <= 0.5 and 0.06 <= bh <= 0.4 and 0.6 <= (bh * H) / (bw * W) <= 2.2 and y0 < 0.5:
+            found.append(b)
+    return found
+
+
 def _iou(a, b):
     ix = max(0, min(a[2], b[2]) - max(a[0], b[0]))
     iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
@@ -162,7 +199,7 @@ def _iou(a, b):
     return inter / union if union else 0
 
 
-def _blobs(mask, W, H):
+def _blobs(mask, W, H, min_fill=0.55, pad=(2, 3)):
     seen = [[False] * W for _ in range(H)]
     found = []
     for sy in range(H):
@@ -183,16 +220,31 @@ def _blobs(mask, W, H):
             bw, bh = maxx - minx + 1, maxy - miny + 1
             if not (0.08 * W <= bw <= 0.45 * W and 0.05 * H <= bh <= 0.40 * H):
                 continue
-            if not (0.6 <= bh / bw <= 2.2) or n / (bw * bh) < 0.55:
+            if not (0.6 <= bh / bw <= 2.2) or n / (bw * bh) < min_fill:
                 continue
             # zdjęcie zwykle jest w górnej połowie strony
             if miny > 0.5 * H:
                 continue
-            found.append((max(0, minx - 2) / W, max(0, miny - 2) / H,
-                          min(W, maxx + 3) / W, min(H, maxy + 3) / H))
+            found.append((max(0, minx - pad[0]) / W, max(0, miny - pad[0]) / H,
+                          min(W, maxx + pad[1]) / W, min(H, maxy + pad[1]) / H))
     return found
+
+
+def find_photos(img: Image.Image, words) -> list[tuple]:
+    """Obie metody: najpierw "zwarty prostokąt", a gdy nic nie znajdzie - "obszar obrazkowy"."""
+    from .photo import looks_like_photo
+
+    def is_photo(b):
+        x0, y0, x1, y1 = b
+        crop = img.crop((int(x0 * img.width), int(y0 * img.height), int(x1 * img.width), int(y1 * img.height)))
+        return looks_like_photo(crop)
+
+    found = [b for b in detect_photos(img, words) if is_photo(b)]
+    if not found:
+        found = [b for b in detect_photos_grid(img, words) if is_photo(b)]
+    return found[:2]
 
 
 def suggest_areas(path: str) -> list[tuple]:
     img = load_image(path)
-    return [(0, *b) for b in detect_photos(img, words(path))]
+    return [(0, *b) for b in find_photos(img, words(path))]

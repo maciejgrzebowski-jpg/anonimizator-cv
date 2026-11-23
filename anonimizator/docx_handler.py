@@ -108,6 +108,33 @@ def _apply_to_paragraph(p, patterns) -> int:
     return len(spans)
 
 
+R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def _image_rids_in(el, image_rids) -> set:
+    """Identyfikatory plików obrazów, do których odwołuje się element."""
+    out = set()
+    for x in el.iter():
+        if not isinstance(x.tag, str):
+            continue
+        for k, v in x.attrib.items():
+            if k.startswith(R_NS) and v in image_rids:
+                out.add(v)
+    return out
+
+
+def _is_photo_part(part, rid) -> bool:
+    """Czy plik obrazu to zdjęcie osoby (EMF/WMF/SVG i logotypy - nie)."""
+    import io
+    try:
+        from PIL import Image
+        from .photo import looks_like_photo
+        blob = part.related_parts[rid].blob
+        return looks_like_photo(Image.open(io.BytesIO(blob)))
+    except Exception:
+        return False
+
+
 def _sensitive_target(target: str, findings) -> bool:
     t = target.casefold()
     if t.startswith(("mailto:", "tel:")):
@@ -150,13 +177,16 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
         for rel in rels.values():
             if rel.reltype == RT.HYPERLINK and rel.is_external and _sensitive_target(rel.target_ref, active):
                 rel._target = "#"
-        # zdjęcia
+        # zdjęcia: zwykłe obrazy, kształty wypełnione zdjęciem, stare obiekty VML/OLE, tło strony
         if remove_photos:
-            for tag in (f"{{{W}}}drawing", f"{{{W}}}pict"):
+            image_rids = {rid for rid, rel in part.rels.items() if rel.reltype == RT.IMAGE}
+            for tag in (f"{{{W}}}drawing", f"{{{W}}}pict", f"{{{W}}}object", f"{{{W}}}background"):
                 for d in list(root.iter(tag)):
-                    if not any(isinstance(x.tag, str) and x.tag.rsplit("}", 1)[-1] in ("blip", "imagedata")
-                               for x in d.iter()):
-                        continue  # to nie obraz (np. kształt z tekstem)
+                    if d.getparent() is None:
+                        continue
+                    rids = _image_rids_in(d, image_rids)
+                    if not rids or not any(_is_photo_part(part, r) for r in rids):
+                        continue  # bez obrazu albo logo / grafika - zostaje
                     d.getparent().remove(d)
                     stats["zdjecia"] += 1
             # usuń same pliki obrazów z paczki, jeśli nic już do nich nie odwołuje
@@ -169,6 +199,14 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
                         pass
         if is_blob:
             part._blob = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+    # miniaturka 1. strony zapisana przez Worda (zawiera m.in. zdjęcie kandydata)
+    if remove_photos:
+        pkg = doc.part.package
+        for rid, rel in list(pkg.rels.items()):
+            if rel.reltype == RT.THUMBNAIL:
+                pkg.rels.pop(rid)
+                stats["miniatury"] = stats.get("miniatury", 0) + 1
 
     # metadane (autor, ostatnio modyfikowany przez itd.)
     cp = doc.core_properties

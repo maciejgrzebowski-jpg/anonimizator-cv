@@ -50,18 +50,24 @@ def _ocr_page(path: str, page):
 
 
 def suggest_areas(path: str) -> list[tuple]:
-    """Propozycja zdjęcia do zamazania na zeskanowanej 1. stronie."""
+    """Zdjęcie wykryte na podglądzie 1. strony - dodatkowe zabezpieczenie, także dla zwykłych PDF
+    (łapie zdjęcia zapisane nietypowo, np. jako wzór wypełnienia albo przez maskę)."""
     from PIL import Image
-    from .image_handler import detect_photos
+    from .image_handler import find_photos
     with fitz.open(path) as doc:
         page = doc[0]
-        if not _needs_ocr(page):
-            return []  # zwykły PDF - zdjęcia usuwane są automatycznie
-        pix = page.get_pixmap(dpi=OCR_DPI, alpha=False)
+        if _needs_ocr(page):
+            dpi = OCR_DPI
+            z = dpi / 72
+            words = [(x0 * z, y0 * z, x1 * z, y1 * z, t, k) for x0, y0, x1, y1, t, k in _ocr_page(path, page)]
+        else:
+            dpi = 100
+            z = dpi / 72
+            words = [(w[0] * z, w[1] * z, w[2] * z, w[3] * z, w[4], (w[5], w[6]))
+                     for w in page.get_text("words")]
+        pix = page.get_pixmap(dpi=dpi, alpha=False)
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        z = OCR_DPI / 72
-        words = [(x0 * z, y0 * z, x1 * z, y1 * z, t, k) for x0, y0, x1, y1, t, k in _ocr_page(path, page)]
-    return [(0, *b) for b in detect_photos(img, words)]
+    return [(0, *b) for b in find_photos(img, words)]
 
 
 def title_lines(path: str) -> list[tuple]:
@@ -168,6 +174,83 @@ def _add_label(page, rect, label: str, blackout: bool):
         page.add_redact_annot(rect, fill=(1, 1, 1), **kw)
 
 
+def _visible_image_rects(page):
+    """[(xref, prostokąt widoczny na stronie)] dla obrazów na stronie.
+
+    Word zapisuje przycięte zdjęcia (np. w kółku) jako większy obraz + przycięcie,
+    więc sam prostokąt obrazu bywa większy niż strona. Widoczną część bierzemy
+    z dziennika rysowania (bboxlog), który uwzględnia przycięcie.
+    """
+    infos = page.get_image_info(xrefs=True)
+    visible = []
+    try:
+        visible = [fitz.Rect(r) for t, r in page.get_bboxlog() if t in ("fill-image", "fill-imgmask")]
+    except Exception:
+        visible = []
+    out = []
+    for i, info in enumerate(infos):
+        r = fitz.Rect(info["bbox"]) & page.rect
+        if len(visible) == len(infos):
+            r = visible[i] & page.rect
+        out.append((info.get("xref", 0), r, info))
+    return out
+
+
+def _is_photo(doc, xref) -> bool:
+    """Czy obraz w PDF to zdjęcie osoby (a nie logo / grafika)."""
+    try:
+        from PIL import Image
+        from .photo import looks_like_photo
+        pix = fitz.Pixmap(doc, xref)
+        if pix.alpha:
+            pix = fitz.Pixmap(pix, 0)
+        if pix.n not in (1, 3):
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        mode = "L" if pix.n == 1 else "RGB"
+        img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
+        return looks_like_photo(img)
+    except Exception:
+        return False
+
+
+def _remove_photos(page) -> int:
+    pr = page.rect
+    n = 0
+    deleted = set()
+    redact = []
+    for xref, r, info in _visible_image_rects(page):
+        if r.is_empty or r.width < 30 or r.height < 30:
+            continue  # ikonki
+        if r.get_area() > 0.5 * pr.get_area():
+            continue  # tło strony
+        if r.height > 3 * r.width or r.width > 3 * r.height:
+            continue  # pasek / ozdobnik, nie zdjęcie
+        if not xref or not _is_photo(page.parent, xref):
+            continue  # logo, ikona, element oprawy graficznej - zostaje
+        if xref not in deleted:
+            try:
+                page.delete_image(xref)  # usuwa dane obrazu, także niewidoczną (przyciętą) część
+                deleted.add(xref)
+                n += 1
+                continue
+            except Exception:
+                pass
+        redact.append(r)  # nie udało się usunąć danych obrazu - zamaż piksele
+    for r in redact:
+        page.add_redact_annot(r, fill=(1, 1, 1))
+        n += 1
+    if redact:
+        _apply(page, _redact_images_mode())
+    # miniaturka strony (niektóre programy ją zapisują)
+    try:
+        doc = page.parent
+        if "Thumb" in doc.xref_get_keys(page.xref):
+            doc.xref_set_key(page.xref, "Thumb", "null")
+    except Exception:
+        pass
+    return n
+
+
 def _redact_images_mode():
     # PIXELS = wymaż tylko piksele obrazu pod zaznaczeniem (ważne dla skanów z warstwą tekstu)
     return getattr(fitz, "PDF_REDACT_IMAGE_PIXELS", fitz.PDF_REDACT_IMAGE_NONE)
@@ -190,21 +273,9 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
     doc = fitz.open(path)
 
     for page in doc:
-        # 1) zdjęcie kandydata (obrazy na 1. stronie, nie tła i nie małe ikonki)
-        if remove_photos and page.number == 0:
-            pr = page.rect
-            n = 0
-            for info in page.get_image_info():
-                r = fitz.Rect(info["bbox"]) & pr
-                if r.width >= 40 and r.height >= 40 and r.width < pr.width * 0.6 and r.height < pr.height * 0.5:
-                    try:
-                        page.add_redact_annot(r, fill=False)  # zostaje tło strony
-                    except Exception:
-                        page.add_redact_annot(r, fill=(1, 1, 1))
-                    n += 1
-            if n:
-                _apply(page, fitz.PDF_REDACT_IMAGE_REMOVE)
-                stats["zdjecia"] += n
+        # 1) zdjęcia: każdy obraz, który nie jest tłem strony - usuwany razem z danymi
+        if remove_photos:
+            stats["zdjecia"] += _remove_photos(page)
 
         # 2a) ręcznie zaznaczone obszary (np. zdjęcie na skanie)
         n_manual = 0

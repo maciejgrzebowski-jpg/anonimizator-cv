@@ -37,11 +37,10 @@ BODY = [
 
 
 def photo(path: Path):
-    img = Image.new("RGB", (300, 380), (180, 200, 220))
-    d = ImageDraw.Draw(img)
-    d.ellipse((90, 60, 210, 190), fill=(240, 210, 180))
-    d.rectangle((60, 220, 240, 380), fill=(60, 90, 140))
-    img.save(path)
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from anonimizator.photo import fake_portrait
+    fake_portrait().save(path)
 
 
 def make_docx(img: Path):
