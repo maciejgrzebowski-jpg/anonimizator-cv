@@ -16,7 +16,8 @@ DisableProgramGroupPage=yes
 ; instalacja dla bieżącego użytkownika - nie wymaga uprawnień administratora
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=AnonimizatorCV-Setup-{#AppVersion}
+; stała nazwa = stały link do pobrania (…/releases/latest/download/AnonimizatorCV-Setup.exe)
+OutputBaseFilename=AnonimizatorCV-Setup
 SetupIconFile=ikona.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}

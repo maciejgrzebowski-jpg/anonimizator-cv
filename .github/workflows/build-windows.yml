@@ -72,7 +72,7 @@ jobs:
         run: |
           # ukrywamy systemowego Tesseracta - program musi działać na tym, co ma w instalatorze
           Rename-Item "C:\Program Files\Tesseract-OCR" "Tesseract-OCR-ukryty"
-          $setup = Get-ChildItem dist\AnonimizatorCV-Setup-*.exe | Select-Object -First 1
+          $setup = Get-ChildItem dist\AnonimizatorCV-Setup*.exe | Select-Object -First 1
           $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/LOG=install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
           $dir = "$env:LOCALAPPDATA\Programs\Anonimizator CV"

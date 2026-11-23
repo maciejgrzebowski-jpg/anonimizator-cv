@@ -306,8 +306,7 @@ class App(tk.Tk):
         self.queue = sorted(paths, key=lambda p: Path(p).name.casefold())
         self.qi = 0
         self.batch_done = []
-        self.out_dir = Path(self.queue[0]).parent / "CV zanonimizowane"
-        self.out_dir.mkdir(exist_ok=True)
+        self.out_dir = engine.new_batch_dir()
         self.batch_bar.pack(side="left", padx=12)
         messagebox.showinfo("Wiele plików", f"Wybrano {len(self.queue)} plików.\n\n"
                             "Każdy możesz przejrzeć i zapisać przyciskiem „Zapisz i dalej”, albo kliknąć "
@@ -623,7 +622,7 @@ class App(tk.Tk):
         if self.queue:
             return self._save_batch()
         out = filedialog.asksaveasfilename(
-            title="Zapisz zanonimizowane CV", initialdir=str(src.parent),
+            title="Zapisz zanonimizowane CV", initialdir=str(engine.results_root()),
             initialfile=engine.default_output_name(self.path), defaultextension=src.suffix.lower(),
             filetypes=[(engine.SUPPORTED.get(src.suffix.lower(), "Plik"), f"*{src.suffix.lower()}")])
         if not out:

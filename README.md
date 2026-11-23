@@ -40,7 +40,7 @@ Nazwa pliku wynikowego to np. `CV_anonim_20261122_214512.pdf`, a nie nazwa orygi
 
 Dwuklik na pozycji pozwala zmienić zamianę, np. `[KANDYDAT]` → `Kandydat A`.
 
-**Wiele plików naraz:** w oknie wyboru zaznacz kilka CV (Ctrl/Shift + klik). Każde możesz przejrzeć i zatwierdzić przyciskiem **Zapisz i dalej ▶** albo kliknąć **Pozostałe zapisz automatycznie**. Wyniki trafiają do folderu `CV zanonimizowane` obok oryginałów i dostają numery (`CV_01`, `CV_02`…). Plik `lista_kandydatow.csv` w tym folderze mówi, który numer to który oryginał. Zostaw go u siebie, nie wysyłaj razem z CV. Na końcu program wypisuje pliki, które warto sprawdzić ręcznie.
+**Wiele plików naraz:** w oknie wyboru zaznacz kilka CV (Ctrl/Shift + klik). Każde możesz przejrzeć i zatwierdzić przyciskiem **Zapisz i dalej ▶** albo kliknąć **Pozostałe zapisz automatycznie**. Wyniki trafiają do folderu `Dokumenty\CV zanonimizowane\<data i godzina>` (krótka ścieżka, bo Windows nie otwiera plików o ścieżce dłuższej niż 260 znaków) i dostają numery (`CV_01`, `CV_02`…). Plik `lista_kandydatow.csv` w tym folderze mówi, który numer to który oryginał. Zostaw go u siebie, nie wysyłaj razem z CV. Na końcu program wypisuje pliki, które warto sprawdzić ręcznie.
 
 Przycisk **Zamaż obszar…** otwiera podgląd strony, na którym myszką zaznacza się prostokąt do zamazania, np. zdjęcie, podpis albo logo. W obrazkach i skanach program sam proponuje obszar zdjęcia. Warto to sprawdzić.
 

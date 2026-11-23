@@ -184,3 +184,49 @@ def render_pages(path: str, max_pages: int = 10, dpi: int = 110):
             pix = page.get_pixmap(dpi=dpi, alpha=False)
             out.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
     return out
+
+
+# --- gdzie zapisywać wyniki ----------------------------------------------------
+# Windows (a za nim Adobe Reader i Excel) nie otwiera plików ze ścieżką dłuższą niż 260 znaków.
+# Dlatego wyniki NIE trafiają obok oryginałów (te bywają głęboko w OneDrive/Outlooku),
+# tylko do krótkiej, stałej ścieżki w Dokumentach.
+MAX_SAFE_PATH = 200
+
+
+def documents_dir() -> Path:
+    """Folder Dokumenty użytkownika (także przekierowany do OneDrive)."""
+    import os
+    import sys
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(1024)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0 and buf.value:
+                return Path(buf.value)
+        except Exception:
+            pass
+        prof = os.environ.get("USERPROFILE")
+        if prof and (Path(prof) / "Documents").is_dir():
+            return Path(prof) / "Documents"
+    home = Path.home()
+    return home / "Documents" if (home / "Documents").is_dir() else home
+
+
+def results_root() -> Path:
+    root = documents_dir() / "CV zanonimizowane"
+    if len(str(root)) > MAX_SAFE_PATH - 60:
+        root = Path(Path.home().anchor or "/") / "CV zanonimizowane"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def new_batch_dir() -> Path:
+    """Osobny folder dla każdej partii CV, np. ...\\CV zanonimizowane\\2026-11-23 16.50"""
+    from datetime import datetime
+    root = results_root()
+    base = datetime.now().strftime("%Y-%m-%d %H.%M")
+    d, n = root / base, 2
+    while d.exists():
+        d, n = root / f"{base} ({n})", n + 1
+    d.mkdir(parents=True)
+    return d

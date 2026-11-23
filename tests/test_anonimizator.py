@@ -264,6 +264,20 @@ def test_unsupported(tmp_path):
         engine.analyze(str(p))
 
 
+def test_results_go_to_short_path():
+    """Wyniki w krótkiej ścieżce - inaczej Reader/Excel na Windows ich nie otworzą (limit 260 znaków)."""
+    d1 = engine.new_batch_dir()
+    d2 = engine.new_batch_dir()
+    try:
+        assert d1 != d2 and d1.is_dir() and d2.is_dir()
+        longest = d1 / ("CV_99.pdf")
+        assert len(str(longest)) < 200
+        assert len(str(d1 / "lista_kandydatow.csv")) < 200
+    finally:
+        d1.rmdir()
+        d2.rmdir()
+
+
 def test_output_name_has_no_personal_data():
     assert "Kowalski" not in engine.default_output_name("C:/CV_Jan_Kowalski.pdf")
 
