@@ -18,6 +18,8 @@ KOD = "Kod pocztowy / miasto"
 LINK = "Profil / link"
 URODZENIE = "Data / miejsce urodzenia"
 WLASNE = "Dodane ręcznie"
+PRYWATNE = "Stan cywilny / rodzina"
+SEKCJA = "Sekcja: dane osobowe"
 
 ETYKIETY = {
     KANDYDAT: "[KANDYDAT]",
@@ -30,6 +32,8 @@ ETYKIETY = {
     LINK: "[LINK]",
     URODZENIE: "[DATA URODZENIA]",
     WLASNE: "[USUNIETO]",
+    PRYWATNE: "[USUNIETO]",
+    SEKCJA: "[USUNIETO]",
 }
 
 
@@ -145,6 +149,36 @@ LABEL_ONLY = [
 
 # pełna data z rokiem 1940-2009 = najpewniej data urodzenia (daty pracy to zwykle mm.rrrr)
 RE_BIRTH_LIKE = re.compile(r"(?<![\d.])(?:0?[1-9]|[12]\d|3[01]) ?[./-]? ?(?:0?[1-9]|1[0-2]) ?[./-] ?(?:19[4-9]\d|200\d)(?!\d)")
+# data zapisana słownie: "04 października 1982", "4 Oct 1982"
+MONTHS = (r"stycz\w*|lut\w*|mar(?:ca|zec)|kwie\w*|maj\w*|czerw\w*|lip\w*|sierp\w*|wrze\w*|"
+          r"pa[źz]dzier\w*|listopad\w*|grud\w*|jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|"
+          r"sep\w*|oct\w*|nov\w*|dec\w*")
+RE_BIRTH_WORDS = re.compile(rf"(?i)(?<!\w)(?:0?[1-9]|[12]\d|3[01])\.?\s+(?:{MONTHS})\s+(?:19[4-9]\d|200\d)(?:\s?r\.)?(?!\d)")
+# stan cywilny i dzieci - nie powinny wpływać na ocenę kandydata
+RE_FAMILY = re.compile(
+    r"(?i)(?<!\w)(?:mężatka|zamężna|żonaty|kawaler|panna|rozwiedzion\w*|rozwódka|rozwodnik|wdowa|wdowiec|"
+    r"w\s+związku\s+małżeńskim|married|single|divorced|widow\w*)(?!\w)"
+    r"|(?<!\w)(?:jedno|dwoje|troje|czworo|\d+)\s+dzieci(?!\w)"
+    r"|(?<!\w)(?:syn|córka|córki|synowie|synów|dzieci|dziecko|son|daughter|children)\s*\(?\s*(?:19|20)\d\d"
+)
+FAMILY_LABEL = re.compile(r"(?i)\b(?:stan\s+cywilny|marital\s+status|dzieci|children|wyznanie|religia)\s*[:–—-]\s*")
+
+# sekcja CV, której całą zawartość usuwamy
+SECTION_PERSONAL = re.compile(
+    r"(?i)^\W*(?:dane\s+osobowe|dane\s+personalne|informacje\s+osobiste|dane\s+kontaktowe|kontakt|"
+    r"personal\s+(?:data|details|information|info)|contact(?:\s+details|\s+information)?)\W*$")
+SECTION_HEADINGS = re.compile(
+    r"(?i)^\W*(?:doświadczenie(?:\s+zawodowe)?|przebieg\s+(?:pracy|kariery|zatrudnienia)|wykształcenie|edukacja|"
+    r"umiejętności|kompetencje|kluczowe\s+kompetencje|języki(?:\s+obce)?|znajomość\s+języków|kursy|szkolenia|"
+    r"kursy\s+i\s+szkolenia|certyfikaty|zainteresowania|hobby|podsumowanie|profil(?:\s+zawodowy)?|o\s+mnie|"
+    r"cel\s+zawodowy|osiągnięcia|referencje|dodatkowe\s+informacje|informacje\s+dodatkowe|uprawnienia|"
+    r"wybrane\s+szkolenia|social\s+media|experience|work\s+experience|education|skills|languages|"
+    r"courses|certificates|interests|summary|profile|about\s+me|references)\W*$")
+SECTION_MAX_LINES = 15
+SECTION_MAX_LEN = 60
+# okres zatrudnienia / nauki - znak, że to już nie są dane osobowe
+RE_DATE_RANGE = re.compile(r"(?i)(?:\d{2}[./]\d{4}|\b(?:19|20)\d\d)\s*[–—-]\s*(?:\d{2}[./]\d{4}|(?:19|20)\d\d|obecnie|nadal|present|now)")
+
 # linia "kontaktowa" - tu OCR najczęściej przekręca e-mail i linki
 RE_CONTACTISH = re.compile(r"(?i)com|con\b|\bpl\b|\.pl|@|®|©|mail|www|http|linked|lnkd")
 
@@ -392,8 +426,19 @@ def detect(lines: list[str], filename: str | None = None, titles=None,
             before = re.sub(r"^[^A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+", "", l[:m.start()]).strip(" ,;|")
             if before and len(before) <= 50 and re.search(r"\d", before):
                 add(ADRES, before)
-        for m in RE_BIRTH_LIKE.finditer(l):
-            add(URODZENIE, m.group())
+        birth_ctx = len(l.strip()) <= 40 or re.search(r"(?i)urodz|\bur\.|born|birth", l)
+        if birth_ctx:
+            for m in RE_BIRTH_WORDS.finditer(l):
+                add(URODZENIE, m.group())
+        # stan cywilny / dzieci: cała (krótka) linia z taką informacją
+        fl = FAMILY_LABEL.search(l)
+        if fl and _clean(l[fl.end():]):
+            add(PRYWATNE, l[fl.end():])
+        elif RE_FAMILY.search(l) and len(l.strip()) <= 90:
+            add(PRYWATNE, l)
+        if birth_ctx:
+            for m in RE_BIRTH_LIKE.finditer(l):
+                add(URODZENIE, m.group())
         for m in RE_BIRTH_DATE.finditer(l):
             add(URODZENIE, m.group(1))
         for rx, kind in LABELLED:
@@ -420,6 +465,33 @@ def detect(lines: list[str], filename: str | None = None, titles=None,
                         val += " " + toks[i + 1]
                     add(EMAIL if RE_EMAIL_OCR.search(l) or "@" in l or "mail" in l.lower() or re.search(r"(?i)com|pl", val)
                         else LINK, val)
+
+    # sekcja "Dane osobowe" / "Kontakt": tyle wartości, ile etykiet (+ zapas na dopiski)
+    nonempty_all = [l for l in lines if l.strip()]
+    for i, head in enumerate(nonempty_all):
+        if not SECTION_PERSONAL.match(head):
+            continue
+        window = []
+        for l in nonempty_all[i + 1:i + 1 + SECTION_MAX_LINES]:
+            line = _clean(l)
+            if SECTION_HEADINGS.match(l) or SECTION_PERSONAL.match(l) or len(line) > SECTION_MAX_LEN \
+                    or RE_DATE_RANGE.search(line):
+                break  # koniec sekcji: nagłówek, długi opis albo okres pracy
+            if line:
+                window.append(line)
+        label_only = [x for x in window if re.fullmatch(r"[^:]{2,30}:", x)]
+        budget = len(label_only) + 2 if label_only else 0
+        for line in window:
+            m = re.match(r"^([^:]{2,30}):\s*(.*)$", line)
+            if m:  # "Etykieta: wartość" -> zostaw etykietę
+                if _clean(m.group(2)):
+                    add(SEKCJA, m.group(2))
+                continue
+            if budget > 0:
+                add(SEKCJA, line)
+                budget -= 1
+            elif not label_only and re.search(r"\d|@|www|ul\.", line):
+                add(SEKCJA, line)  # sekcja bez etykiet: tylko linie wyglądające na kontakt
 
     # etykieta w jednej linii, wartość w następnej
     nonempty = [l for l in lines if l.strip()]

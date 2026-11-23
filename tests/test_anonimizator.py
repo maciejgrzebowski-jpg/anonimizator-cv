@@ -52,6 +52,60 @@ def test_name_from_filename():
     assert (KANDYDAT, "Marta Lewandowska") in found
 
 
+def test_birth_date_in_words_and_family_status():
+    # etykiety i wartości w osobnych kolumnach (typowe dla PDF z tabelą)
+    lines = ["Data urodzenia:", "Stan cywilny:", "Wykształcenie:",
+             "04 października 1982", "mężatka, dwoje dzieci syn (2008) i", "córka (2011)",
+             "Praca z dziećmi w przedszkolu 2015-2018", "Opieka nad grupą dzieci w wieku 3-6 lat"]
+    texts = {t for _, t in kinds(lines)}
+    assert "04 października 1982" in texts
+    assert "mężatka, dwoje dzieci syn (2008) i" in texts
+    assert "córka (2011)" in texts
+    # zwykłe doświadczenie zawodowe z dziećmi zostaje
+    assert not any("przedszkolu" in t or "wieku" in t for t in texts)
+    found = kinds(["Stan cywilny: żonaty", "ur. 3 maja 1990 r."])
+    assert any(t == "żonaty" for _, t in found)
+    assert any("1990" in t for _, t in found)
+
+
+def test_personal_data_section_is_wiped():
+    lines = ["CURRICULUM VITAE", "Dane osobowe", "Imię i nazwisko:", "Adres:", "Telefon:",
+             "Narodowość:", "Anna Zielińska", "ul. Polna 5, 00-001 Warszawa,", "Polska",
+             "600 700 800", "polska", "Doświadczenie zawodowe", "2015-2020 Księgowa, Firma XYZ"]
+    found = detect(lines)
+    texts = {f.text for f in found}
+    for x in ["Anna Zielińska", "Polska", "600 700 800"]:
+        assert x in texts, x
+    # etykiety i treść po kolejnym nagłówku zostają
+    assert not any(t in ("Telefon:", "Adres:") for t in texts)
+    assert not any("Księgowa" in t or "Doświadczenie" in t for t in texts)
+    # "Etykieta: wartość" w jednej linii
+    texts2 = {f.text for f in detect(["DANE OSOBOWE", "Obywatelstwo: polskie", "Wiek: 42", "EDUKACJA", "Studia"])}
+    assert {"polskie", "42"} <= texts2 and "Studia" not in texts2
+
+
+def test_section_does_not_eat_experience():
+    """Gdy nagłówek po sekcji ma nietypową nazwę, sekcja nie może zjeść doświadczenia."""
+    lines = ["Dane osobowe", "Imię i nazwisko:", "Adres:", "Telefon:", "E-mail:", "Data urodzenia:",
+             "Stan cywilny:", "Anna Zielińska", "ul. Polna 5, 00-001 Warszawa,", "Polska", "600 700 800",
+             "anna@example.com", "04 października 1982", "mężatka, dwoje dzieci syn (2008) i", "córka (2011)",
+             "Moja kariera filmowa", "Projekty niezależne | 07.2023–obecnie / freelance",
+             "Kierowniczka produkcji / Producentka wykonawcza", "Talent Agent",
+             "Przygotowywanie i obsługa umów cywilnoprawnych"]
+    texts = {f.text for f in detect(lines)}
+    for x in ["Anna Zielińska", "Polska", "04 października 1982", "córka (2011)"]:
+        assert x in texts, x
+    for x in ["Talent Agent", "Kierowniczka produkcji / Producentka wykonawcza",
+              "Przygotowywanie i obsługa umów cywilnoprawnych", "Moja kariera filmowa"]:
+        assert x not in texts, x
+
+
+def test_law_date_in_consent_clause_is_kept():
+    lines = ["Wyrażam zgodę na przetwarzanie danych osobowych zawartych w mojej ofercie pracy dla potrzeb niezbędnych",
+             "do realizacji procesu rekrutacji zgodnie z ustawą z dnia 29 sierpnia 1997 r. o ochronie danych"]
+    assert not any("1997" in f.text for f in detect(lines))
+
+
 def test_reference_person_and_uppercase():
     lines = ["PIOTR WÓJCIK", "Referencje: Ewa Kamińska, tel. 600 100 200"]
     found = kinds(lines)
