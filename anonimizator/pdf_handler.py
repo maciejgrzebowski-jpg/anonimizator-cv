@@ -364,6 +364,99 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
                     entry[1] = f.replacement
         doc.set_toc(toc)
 
-    doc.save(out_path, garbage=4, deflate=True, clean=True)
+    n_pages = doc.page_count
+    _save_safely(doc, out_path, n_pages)
     doc.close()
     return stats
+
+
+# --- bezpieczny zapis ---------------------------------------------------------
+
+def pdf_ok(path: str, n_pages: int | None = None) -> bool:
+    """Czy PDF da się otworzyć i wyrenderować każdą stronę (bez "naprawiania" po drodze)."""
+    import os
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return False
+    try:
+        fitz.TOOLS.mupdf_warnings(reset=True)
+    except Exception:
+        pass
+    try:
+        with fitz.open(path) as d:
+            if d.is_repaired if hasattr(d, "is_repaired") else False:
+                return False
+            if n_pages is not None and d.page_count != n_pages:
+                return False
+            if d.page_count == 0:
+                return False
+            for page in d:
+                page.get_pixmap(dpi=20)
+                page.get_text("text")
+        try:
+            w = fitz.TOOLS.mupdf_warnings(reset=True) or ""
+            if "repair" in w.lower() or "syntax error" in w.lower():
+                return False
+        except Exception:
+            pass
+    except Exception:
+        return False
+    return _qpdf_ok(path, n_pages)
+
+
+def _qpdf_ok(path: str, n_pages: int | None) -> bool:
+    """Druga, niezależna kontrola: qpdf (ten sam rodzaj ścisłości co Adobe Reader)."""
+    try:
+        import pikepdf
+    except ImportError:
+        return True
+    try:
+        with pikepdf.open(path) as p:
+            if n_pages is not None and len(p.pages) != n_pages:
+                return False
+            warn = " ".join(str(w) for w in (p.get_warnings() if hasattr(p, "get_warnings") else []))
+            if "damaged" in warn.lower() or "recover" in warn.lower():
+                return False  # qpdf musiał "naprawiać" plik - Adobe Reader może go odrzucić
+            check = getattr(p, "check_pdf_syntax", None) or getattr(p, "check", None)
+            if check is not None:
+                problems = [x for x in check() if "error" in str(x).lower()]
+                if problems:
+                    return False
+            return True
+    except Exception:
+        return False
+
+
+def normalize(path: str, n_pages: int | None = None) -> None:
+    """Przepisuje PDF przez qpdf do ściśle zgodnej ze standardem postaci
+    (czytelnej dla Adobe Readera). Usuwa też wszystkie nieużywane obiekty."""
+    import os
+    try:
+        import pikepdf
+    except ImportError:
+        return
+    tmp = path + ".qpdf"
+    try:
+        with pikepdf.open(path) as p:
+            p.save(tmp)
+        if pdf_ok(tmp, n_pages):
+            os.replace(tmp, path)
+    except Exception:
+        pass
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _save_safely(doc, out_path: str, n_pages: int) -> None:
+    """Zapis z kontrolą: kilka coraz ostrożniejszych sposobów, aż wynik będzie poprawny."""
+    attempts = [dict(garbage=3, deflate=True), dict(garbage=1, deflate=True), dict(garbage=0)]
+    for opts in attempts:
+        try:
+            doc.save(out_path, **opts)
+        except Exception:
+            continue
+        if pdf_ok(out_path, n_pages):
+            normalize(out_path, n_pages)
+            return
+    raise RuntimeError("Nie udało się zapisać poprawnego pliku PDF. Oryginał jest nietknięty - "
+                       "spróbuj wyłączyć „Usuń zdjęcie kandydata” albo zamazać zdjęcie ręcznie.")

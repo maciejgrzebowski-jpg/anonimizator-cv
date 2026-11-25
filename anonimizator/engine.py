@@ -85,20 +85,71 @@ def anonymize(path: str, out_path: str, findings: list[Finding], blackout: bool 
     """manual: ręcznie zaznaczone obszary [(strona, x0, y0, x1, y1)] we współrzędnych 0-1."""
     if Path(path).resolve() == Path(out_path).resolve():
         raise ValueError("Plik wynikowy nie może nadpisać oryginału.")
+    import os
     kw = {"manual": manual} if supports_areas(path) else {}
-    stats = _handler(path).anonymize(path, out_path, findings, blackout=blackout,
-                                      remove_photos=remove_photos, **kw)
-    if _uses_ocr(path):
-        extra = []
-        for _ in range(2):  # najwyżej dwie dodatkowe rundy, tylko jeśli coś się znajduje
-            new = _second_pass(out_path, findings, blackout)
-            if not new:
-                break
-            extra += new
-        stats["dodatkowo"] = extra
-        stats["zamiany"] += len(extra)
-    stats["pozostalo"] = verify(out_path, findings)
+    final = Path(out_path)
+    # zapis do pliku tymczasowego obok - właściwy plik pojawia się dopiero, gdy wszystko jest w porządku
+    tmp = final.with_name(f"~{final.stem}.tmp{final.suffix}")
+    try:
+        stats = _handler(path).anonymize(path, str(tmp), findings, blackout=blackout,
+                                          remove_photos=remove_photos, **kw)
+        if _uses_ocr(path):
+            extra = []
+            for _ in range(2):  # najwyżej dwie dodatkowe rundy, tylko jeśli coś się znajduje
+                new = _second_pass(str(tmp), findings, blackout)
+                if not new:
+                    break
+                extra += new
+            stats["dodatkowo"] = extra
+            stats["zamiany"] += len(extra)
+        _validate(str(tmp))
+        os.replace(tmp, final)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    stats["pozostalo"] = verify(str(final), findings)
     return stats
+
+
+def _validate(path: str) -> None:
+    """Czy plik wynikowy da się otworzyć. Jeśli nie - błąd zamiast uszkodzonego pliku."""
+    import os
+    import zipfile
+    ext = Path(path).suffix.lower()
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        raise RuntimeError("Plik wynikowy jest pusty - zapis się nie udał.")
+    if ext == ".pdf":
+        from .pdf_handler import pdf_ok
+        if not pdf_ok(path):
+            raise RuntimeError("Plik wynikowy PDF jest uszkodzony - nie został zapisany.")
+    elif ext == ".docx":
+        with zipfile.ZipFile(path) as z:
+            if z.testzip() is not None:
+                raise RuntimeError("Plik wynikowy Word jest uszkodzony - nie został zapisany.")
+        from docx import Document
+        Document(path)
+    elif ext in IMAGES:
+        from PIL import Image
+        with Image.open(path) as im:
+            im.verify()
+        with Image.open(path) as im:
+            im.load()
+
+
+def candidate_summary(findings: list[Finding]) -> dict:
+    """Dane do listy kandydatów (zostaje u użytkownika): imię i nazwisko, telefon, e-mail."""
+    def first(kind_prefix, prefer_long=False):
+        xs = [f.text for f in findings if f.enabled and f.kind.startswith(kind_prefix)]
+        if not xs:
+            return ""
+        if prefer_long:
+            multi = [x for x in xs if len(x.split()) >= 2] or xs
+            return max(multi, key=len)
+        return xs[0]
+    name = first("Imię", prefer_long=True)
+    if name.isupper():
+        name = name.title()
+    return {"imie_nazwisko": name, "telefon": first("Telefon"), "email": first("E-mail")}
 
 
 def _uses_ocr(path: str) -> bool:
@@ -230,3 +281,23 @@ def new_batch_dir() -> Path:
         d, n = root / f"{base} ({n})", n + 1
     d.mkdir(parents=True)
     return d
+
+
+LIST_HEADER = ["plik zanonimizowany", "imię i nazwisko", "telefon", "e-mail",
+               "plik oryginalny", "folder oryginału", "data", "uwagi"]
+
+
+def write_candidate_list(out_dir, src: str, out, note: str = "", findings=None):
+    """Lista "który numer to który kandydat" - zostaje u użytkownika, nigdy nie jest wysyłana."""
+    import csv
+    from datetime import datetime
+    info = candidate_summary(findings or [])
+    lst = out_dir / "lista_kandydatow.csv"
+    new = not lst.exists()
+    with open(lst, "a", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f, delimiter=";")
+        if new:
+            w.writerow(LIST_HEADER)
+        w.writerow([out.name if out else "(nie zapisano)", info["imie_nazwisko"] or "(nie wykryto)",
+                    info["telefon"], info["email"], Path(src).name, str(Path(src).parent),
+                    f"{datetime.now():%Y-%m-%d %H:%M}", note])

@@ -307,6 +307,7 @@ class App(tk.Tk):
         self.qi = 0
         self.batch_done = []
         self.out_dir = engine.new_batch_dir()
+        self._reserved = set()
         self.batch_bar.pack(side="left", padx=12)
         messagebox.showinfo("Wiele plików", f"Wybrano {len(self.queue)} plików.\n\n"
                             "Każdy możesz przejrzeć i zapisać przyciskiem „Zapisz i dalej”, albo kliknąć "
@@ -317,22 +318,18 @@ class App(tk.Tk):
         self.load(self.queue[0])
 
     def _batch_name(self, src: str) -> Path:
+        """Kolejny wolny numer (rezerwowany w pamięci - bez tworzenia pustych plików)."""
         ext = Path(src).suffix.lower()
+        reserved = getattr(self, "_reserved", set())
+        self._reserved = reserved
         n = 1
-        while any(self.out_dir.glob(f"CV_{n:02d}.*")):
+        while any(self.out_dir.glob(f"CV_{n:02d}.*")) or n in reserved:
             n += 1
+        reserved.add(n)
         return self.out_dir / f"CV_{n:02d}{ext}"
 
-    def _record(self, src: str, out: Path, st: dict | None, note: str = ""):
-        import csv
-        from datetime import datetime
-        lst = self.out_dir / "lista_kandydatow.csv"
-        new = not lst.exists()
-        with open(lst, "a", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f, delimiter=";")
-            if new:
-                w.writerow(["plik zanonimizowany", "plik oryginalny", "data", "uwagi"])
-            w.writerow([out.name if out else "", Path(src).name, f"{datetime.now():%Y-%m-%d %H:%M}", note])
+    def _record(self, src: str, out: Path, st: dict | None, note: str = "", findings=None):
+        engine.write_candidate_list(self.out_dir, src, out, note, findings)
         self.batch_done.append((src, out, st, note))
 
     def skip(self):
@@ -375,8 +372,8 @@ class App(tk.Tk):
             results = []
             for src in rest:
                 out = self._batch_name(src)
-                out.touch()  # rezerwacja numeru
                 out_names[src] = out
+                findings = []
                 try:
                     _, findings = engine.analyze(src)
                     areas = engine.suggest_areas(src) if photos else []
@@ -389,22 +386,18 @@ class App(tk.Tk):
                         note = "nie wykryto imienia i nazwiska"
                     elif engine.supports_areas(src) and not areas and Path(src).suffix.lower() != ".pdf":
                         note = "nie wykryto zdjęcia - sprawdź"
-                    results.append((src, out, st, note))
+                    results.append((src, out, st, note, findings))
                 except Exception as e:  # noqa: BLE001
                     log_error(e)
-                    try:
-                        out.unlink()
-                    except OSError:
-                        pass
-                    results.append((src, None, None, f"błąd: {e}"))
+                    results.append((src, None, None, f"błąd: {e}", findings))
             return results
 
         def done(results, error):
             if error is not None:
                 show_error(self, "Błąd", error, "Przetwarzanie automatyczne zostało przerwane.")
                 return
-            for src, out, st, note in results:
-                self._record(src, out, st, note)
+            for src, out, st, note, findings in results:
+                self._record(src, out, st, note, findings)
             self.qi = len(self.queue)
             self._finish_batch()
 
@@ -573,7 +566,6 @@ class App(tk.Tk):
     def _save_batch(self):
         src = self.path
         out = self._batch_name(src)
-        out.touch()
         blackout, photos, findings = self.blackout.get(), self.remove_photos.get(), self.findings
         areas = [a for a in self.areas if photos or a not in self.auto_areas]
 
@@ -583,14 +575,10 @@ class App(tk.Tk):
 
         def done(st, error):
             if error is not None:
-                try:
-                    out.unlink()
-                except OSError:
-                    pass
                 show_error(self, "Błąd zapisu", error, "Nie udało się zapisać pliku.")
                 return
             note = "w pliku mogło coś zostać" if st.get("pozostalo") else ""
-            self._record(src, out, st, note)
+            self._record(src, out, st, note, findings)
             self._next()
 
         self._bg("Zapisywanie…", work, done)
@@ -679,6 +667,12 @@ def selftest() -> int:
         except Exception:
             ok = False
             lines.append(f"{name}: WYJATEK\n{traceback.format_exc()}")
+    try:
+        import pikepdf
+        lines.append(f"pikepdf (qpdf): {pikepdf.__version__}")
+    except Exception as e:
+        ok = False
+        lines.append(f"BLAD: brak pikepdf ({e})")
     try:
         from . import ocr
         exe = ocr.tesseract_exe()

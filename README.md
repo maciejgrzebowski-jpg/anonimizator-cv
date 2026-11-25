@@ -26,7 +26,7 @@ Jeden obrazek trwa ok. 5–20 sekund. Im lepsza jakość pliku (skan 200–300 d
 | Zdjęcie kandydata | Usuwane są tylko zdjęcia osób - logo i elementy graficzne zostają (rozpoznanie po kolorach: płynne odcienie i kolor skóry vs. płaskie kolory). PDF i Word: razem z danymi obrazu (także przycięte, w kole, jako wypełnienie kształtu) oraz miniaturka pliku; obrazki i skany: dwie niezależne metody wykrywania, wynik do sprawdzenia |
 | Ukryte dane | autor i tytuł w metadanych, klikalne linki `mailto:`, dane EXIF w zdjęciach (np. GPS) |
 
-Wszystko, co zostaje w dokumencie, program sprawdza jeszcze raz po zapisie. Jeśli jakaś zaznaczona fraza nadal jest widoczna, pojawi się ostrzeżenie.
+Każdy plik wynikowy jest zapisywany najpierw jako tymczasowy, sprawdzany (PDF dodatkowo przez qpdf - tę samą ścisłość co Adobe Reader) i dopiero wtedy pojawia się pod właściwą nazwą. Nie da się więc dostać pustego ani uszkodzonego pliku - w razie problemu pojawi się komunikat. Wszystko, co zostaje w dokumencie, program sprawdza jeszcze raz po zapisie. Jeśli jakaś zaznaczona fraza nadal jest widoczna, pojawi się ostrzeżenie.
 
 Nazwa pliku wynikowego to np. `CV_anonim_20261122_214512.pdf`, a nie nazwa oryginału, bo ta często zawiera imię i nazwisko.
 
@@ -40,7 +40,7 @@ Nazwa pliku wynikowego to np. `CV_anonim_20261122_214512.pdf`, a nie nazwa orygi
 
 Dwuklik na pozycji pozwala zmienić zamianę, np. `[KANDYDAT]` → `Kandydat A`.
 
-**Wiele plików naraz:** w oknie wyboru zaznacz kilka CV (Ctrl/Shift + klik). Każde możesz przejrzeć i zatwierdzić przyciskiem **Zapisz i dalej ▶** albo kliknąć **Pozostałe zapisz automatycznie**. Wyniki trafiają do folderu `Dokumenty\CV zanonimizowane\<data i godzina>` (krótka ścieżka, bo Windows nie otwiera plików o ścieżce dłuższej niż 260 znaków) i dostają numery (`CV_01`, `CV_02`…). Plik `lista_kandydatow.csv` w tym folderze mówi, który numer to który oryginał. Zostaw go u siebie, nie wysyłaj razem z CV. Na końcu program wypisuje pliki, które warto sprawdzić ręcznie.
+**Wiele plików naraz:** w oknie wyboru zaznacz kilka CV (Ctrl/Shift + klik). Każde możesz przejrzeć i zatwierdzić przyciskiem **Zapisz i dalej ▶** albo kliknąć **Pozostałe zapisz automatycznie**. Wyniki trafiają do folderu `Dokumenty\CV zanonimizowane\<data i godzina>` (krótka ścieżka, bo Windows nie otwiera plików o ścieżce dłuższej niż 260 znaków) i dostają numery (`CV_01`, `CV_02`…). Plik `lista_kandydatow.csv` (otwiera się w Excelu) mówi, który numer to który kandydat: zawiera wykryte imię i nazwisko, telefon, e-mail oraz nazwę i folder oryginału. Zostaw go u siebie, nie wysyłaj razem z CV. Na końcu program wypisuje pliki, które warto sprawdzić ręcznie.
 
 Przycisk **Zamaż obszar…** otwiera podgląd strony, na którym myszką zaznacza się prostokąt do zamazania, np. zdjęcie, podpis albo logo. W obrazkach i skanach program sam proponuje obszar zdjęcia. Warto to sprawdzić.
 

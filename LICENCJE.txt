@@ -23,3 +23,4 @@ Wykorzystane komponenty
 - Python, tkinter (Tcl/Tk)             - PSF / licencja typu BSD
 - PyInstaller (program startowy)       - GPL-2.0 z wyjątkiem dla dystrybucji
 - Inno Setup (instalator)              - licencja Inno Setup (darmowa, także komercyjnie)
+- pikepdf (MPL-2.0) i qpdf (Apache-2.0) - kontrola i porzadkowanie plikow PDF

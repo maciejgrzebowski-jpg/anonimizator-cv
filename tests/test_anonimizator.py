@@ -224,6 +224,10 @@ def test_pdf(tmp_path):
         assert not d.metadata.get("author")
         assert not any(l.get("uri", "").startswith("mailto:") for p in d for l in p.get_links())
         assert not [i for i in d[0].get_image_info() if i["width"] > 2], "zdjęcie zostało"
+    # plik zgodny ze standardem (kontrola qpdf - ten sam rodzaj ścisłości co Adobe Reader)
+    from anonimizator.pdf_handler import pdf_ok
+    assert pdf_ok(str(out), 1)
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith("~")]
 
 
 @pytest.mark.skipif(not HAS_PYMUPDF, reason="brak PyMuPDF")
@@ -369,24 +373,64 @@ def test_results_go_to_short_path():
         d2.rmdir()
 
 
+def test_candidate_list_has_name_phone_email(tmp_path):
+    import csv
+    _, findings = engine.analyze(str(SAMPLES / "przykladowe_CV.docx"))
+    engine.write_candidate_list(tmp_path, str(SAMPLES / "przykladowe_CV.docx"), tmp_path / "CV_01.docx", "", findings)
+    with open(tmp_path / "lista_kandydatow.csv", encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    head, row = rows[0], rows[1]
+    r = dict(zip(head, row))
+    assert r["plik zanonimizowany"] == "CV_01.docx"
+    assert r["imię i nazwisko"] == "Katarzyna Wiśniewska-Lis"
+    assert "602 345 678" in r["telefon"]
+    assert r["e-mail"] == "k.wisniewska.lis@example.com"
+    assert r["plik oryginalny"] == "przykladowe_CV.docx"
+
+
+def test_failed_save_leaves_no_file(tmp_path, monkeypatch):
+    """Gdy wynik nie przejdzie kontroli - nie zostaje ani uszkodzony plik, ani plik tymczasowy."""
+    src = SAMPLES / "przykladowe_CV.docx"
+    _, findings = engine.analyze(str(src))
+    out = tmp_path / "CV_01.docx"
+
+    def broken(path):
+        raise RuntimeError("symulowany błąd zapisu")
+    monkeypatch.setattr(engine, "_validate", broken)
+    with pytest.raises(RuntimeError):
+        engine.anonymize(str(src), str(out), findings)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_successful_save_leaves_no_temp_files(tmp_path):
+    src = SAMPLES / "przykladowe_CV.docx"
+    _, findings = engine.analyze(str(src))
+    engine.anonymize(str(src), str(tmp_path / "CV_01.docx"), findings)
+    assert [p.name for p in tmp_path.iterdir()] == ["CV_01.docx"]
+
+
 def test_output_name_has_no_personal_data():
     assert "Kowalski" not in engine.default_output_name("C:/CV_Jan_Kowalski.pdf")
 
 
 @pytest.mark.skipif(importlib.util.find_spec("tkinter") is None, reason="brak tkinter")
 def test_gui_smoke():
+    import time
     import tkinter as tk
     try:
         from anonimizator.gui import App
         app = App(str(SAMPLES / "przykladowe_CV.docx"))
     except tk.TclError:
         pytest.skip("brak ekranu")
-    result = {}
-
-    def check():
-        result["rows"] = len(app.tree.get_children())
+    rows = 0
+    try:
+        deadline = time.time() + 20
+        while time.time() < deadline:  # ręczna pętla zdarzeń - stabilniejsza niż mainloop w testach
+            app.update()
+            rows = len(app.tree.get_children())
+            if rows and not app.busy:
+                break
+            time.sleep(0.05)
+    finally:
         app.destroy()
-
-    app.after(4000, check)
-    app.mainloop()
-    assert result["rows"] >= 8
+    assert rows >= 8
